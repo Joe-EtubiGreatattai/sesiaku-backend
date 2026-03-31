@@ -48,6 +48,11 @@ const authLimiter = rateLimit({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Root endpoint
+app.get('/', (_req, res) => {
+  res.send('Welcome to Seisaku API');
+});
+
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', app: 'seisaku-api', version: '1.0.0' });
