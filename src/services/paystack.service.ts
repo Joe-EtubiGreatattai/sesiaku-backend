@@ -46,6 +46,7 @@ export async function verifyTransaction(reference: string): Promise<{
   subscriptionCode?: string;
   planCode?: string;
   paidAt: string;
+  metadata?: any;
 }> {
   const response = await axios.get(
     `${PAYSTACK_BASE}/transaction/verify/${reference}`,
@@ -59,6 +60,7 @@ export async function verifyTransaction(reference: string): Promise<{
     subscriptionCode: data.subscription?.subscription_code,
     planCode: data.plan?.plan_code,
     paidAt: data.paid_at,
+    metadata: data.metadata,
   };
 }
 

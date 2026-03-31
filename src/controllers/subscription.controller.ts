@@ -81,7 +81,7 @@ export async function verifySubscription(req: AuthRequest, res: Response): Promi
       res.status(400).json({ error: 'Payment not successful' }); return;
     }
 
-    const plan = (data.amount === 100000 ? 'basic' : 'pro') as 'basic' | 'pro';
+    const plan = (data.metadata?.plan || (data.amount === 100000 ? 'basic' : 'pro')) as 'basic' | 'pro';
     const now = new Date();
     const periodEnd = new Date(now);
     periodEnd.setMonth(periodEnd.getMonth() + 1);

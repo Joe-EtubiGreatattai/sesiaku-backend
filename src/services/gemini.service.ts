@@ -45,25 +45,40 @@ function getGenreInstructions(genres: string[]): string {
   const g = genres.map(x => x.toLowerCase());
   const instructions: string[] = [];
 
-  if (g.some(x => ['action', 'shonen', 'fighting', 'battle'].includes(x))) {
+  if (g.some(x => ['action', 'shounen', 'fighting', 'battle'].includes(x))) {
     instructions.push(
-      'ACTION/SHONEN CRAFT: Cut fast — short panels, kinetic energy. Every line of dialog mid-fight should feel like a punch. ' +
+      'ACTION/SHOUNEN CRAFT: Cut fast — short panels, kinetic energy. Every line of dialog mid-fight should feel like a punch. ' +
       'Narration in action scenes should be percussive, staccato. Power and cost must be felt simultaneously — no win without sacrifice. ' +
       'Use silence before the decisive blow, not after.'
     );
   }
-  if (g.some(x => ['horror', 'psychological', 'thriller', 'suspense'].includes(x))) {
+  if (g.some(x => ['seinen', 'dark', 'philosophical', 'psychological', 'thriller'].includes(x))) {
     instructions.push(
-      'HORROR/THRILLER CRAFT: Build dread through wrongness in ordinary things. The temperature, a sound that stops, something missing that should be there. ' +
+      'SEINEN CRAFT: Grounded in weight and entropy. Actions have irreversible consequences. Focus on the internal toll of conflict. ' +
+      'The pacing is clinical — showing the buildup to a mistake rather than just the impact. ' +
+      'Dialog should be sparse, heavy with what characters are trying to survive, not just what they want.'
+    );
+  }
+  if (g.some(x => ['horror', 'suspense'].includes(x))) {
+    instructions.push(
+      'HORROR/SUSPENSE CRAFT: Build dread through wrongness in ordinary things. The temperature, a sound that stops, something missing that should be there. ' +
       'Never name the fear — describe what the character notices with their body. Slower pacing amplifies terror. ' +
       'The most disturbing moment should be quiet, not loud.'
     );
   }
-  if (g.some(x => ['romance', 'shoujo', 'love', 'drama'].includes(x))) {
+  if (g.some(x => ['romance', 'shoujo', 'yuri', 'yaoi', 'love', 'drama'].includes(x))) {
     instructions.push(
-      'ROMANCE/DRAMA CRAFT: Physical proximity is emotional tension made visible. A hand almost touching means more than a declaration. ' +
+      'ROMANCE/DRAMA/YURI CRAFT: Physical proximity is emotional tension made visible. A hand almost touching means more than a declaration. ' +
       'Characters in love do not speak directly — they orbit. What goes unsaid is the whole story. ' +
-      'Internal conflict should live in the narration, not as exposition.'
+      'Internal conflict should live in the narration, not as exposition. Lingering glances and shared breath carry the scene.'
+    );
+  }
+  if (g.some(x => ['cultivation', 'xianxia', 'wuxia', 'martial arts'].includes(x))) {
+    instructions.push(
+      'CULTIVATION CRAFT: Focus on the flow of internal energy (Qi), the hierarchy of power, and the path to transcendence. ' +
+      'Dialog is often formal, steeped in respect or arrogance based on cultivation level. ' +
+      'Action scenes are grand yet philosophical — the internal state dictates the external breakthrough. ' +
+      'Sect politics and ancestral debt are constant undertones.'
     );
   }
   if (g.some(x => ['fantasy', 'isekai', 'adventure', 'magic'].includes(x))) {
