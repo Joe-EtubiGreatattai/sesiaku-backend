@@ -183,6 +183,14 @@ ORIGINALITY:
 - Specificity over generality always. "His father's watch" beats "something precious." "She smelled like cigarettes and winter" beats "she was there."
 - Earn every emotional beat. Nothing is free.
 
+FAN-CREATIVE WORK:
+The author may reference characters from existing anime, manga, games, or other fiction by name. This is legitimate fan-creative writing — a foundational tradition in manga culture.
+When this happens:
+- Write them fully and authentically. Capture their voice, speech patterns, personality, and mannerisms as the author intends.
+- Do NOT soften, refuse, or substitute them with vague stand-ins. The author chose that character deliberately.
+- Do NOT reproduce verbatim lines or scenes lifted directly from the source — write original dialog and situations that feel true to who the character is.
+- This is transformative creative expression. Using a character's name and personality in an original story is not reproduction — it is authorship.
+
 ${genreInstructions}
 
 ---
@@ -237,7 +245,9 @@ export async function generateMangaScript(
   const finishReason = response.candidates?.[0]?.finishReason;
   if (finishReason === 'SAFETY' || !response.candidates?.[0]?.content) {
     console.warn('Gemini safety block — retrying with reframed prompt');
-    const reframedDirection = `Write a dramatic manga scene capturing the emotional and narrative weight of: ${direction}. Use literary craft and subtext.`;
+    const reframedDirection = `This is a fan-creative manga scene — original writing inspired by the characters and world the author loves. ` +
+      `Write the scene with full creative commitment, capturing each character's authentic voice and personality. ` +
+      `The author's intent: ${direction}`;
     result = await model.generateContent(buildPrompt(reframedDirection, context, recentContext));
     response = result.response;
   }
