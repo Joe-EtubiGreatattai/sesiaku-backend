@@ -68,7 +68,7 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
   console.log('[Copilot] Opening panels:', openingPanels.length, '| Recent panels:', recentPanels.length);
   console.log('[Copilot] Sending to Gemini...');
 
-  const { panels, tokensUsed } = await generateMangaScript(direction, {
+  const { panels, tokensUsed, aiModel } = await generateMangaScript(direction, {
     seriesTitle:       manga.title,
     seriesDescription: manga.description,
     genre:             manga.genre,
@@ -93,11 +93,12 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
     generatedScript: { panels },
     panelsCreated: panels.length,
     tokensUsed,
+    aiModel,
   });
 
   await User.findByIdAndUpdate(req.user!._id, { $inc: { aiUsageThisMonth: 1 } });
 
-  console.log('[Copilot] Done. Log ID:', log._id);
+  console.log('[Copilot] Done. Model used:', aiModel, '| Log ID:', log._id);
   res.json({ panels, copilotLogId: log._id, tokensUsed });
 }
 

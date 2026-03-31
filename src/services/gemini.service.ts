@@ -1,6 +1,8 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, GenerationConfig, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI    = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export interface ContextPanel {
   type: 'dialog' | 'narration';
@@ -17,9 +19,9 @@ export interface CopilotContext {
   chapterTitle: string;
   chapterNumber?: number;
   chapterNotes?: string;
-  openingPanels?: ContextPanel[];  // first panels of chapter — establishes tone
-  recentPanels?: ContextPanel[];   // last panels — immediate prior context
-  knownCharacters?: string[];      // all characters seen in this chapter so far
+  openingPanels?: ContextPanel[];
+  recentPanels?: ContextPanel[];
+  knownCharacters?: string[];
 }
 
 export interface GeneratedPanel {
@@ -28,6 +30,8 @@ export interface GeneratedPanel {
   character?: string;
 }
 
+// ─── Gemini safety settings ──────────────────────────────────────────────────
+
 const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
@@ -35,10 +39,10 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
-// Genre-specific craft instructions — each genre has a different rhythm and emotional logic
+// ─── Prompt builders ─────────────────────────────────────────────────────────
+
 function getGenreInstructions(genres: string[]): string {
   const g = genres.map(x => x.toLowerCase());
-
   const instructions: string[] = [];
 
   if (g.some(x => ['action', 'shonen', 'fighting', 'battle'].includes(x))) {
@@ -52,41 +56,38 @@ function getGenreInstructions(genres: string[]): string {
     instructions.push(
       'HORROR/THRILLER CRAFT: Build dread through wrongness in ordinary things. The temperature, a sound that stops, something missing that should be there. ' +
       'Never name the fear — describe what the character notices with their body. Slower pacing amplifies terror. ' +
-      'The most disturbing moment should be quiet, not loud. Avoid jump-scare structure — sustained unease is far more effective.'
+      'The most disturbing moment should be quiet, not loud.'
     );
   }
   if (g.some(x => ['romance', 'shoujo', 'love', 'drama'].includes(x))) {
     instructions.push(
       'ROMANCE/DRAMA CRAFT: Physical proximity is emotional tension made visible. A hand almost touching means more than a declaration. ' +
       'Characters in love do not speak directly — they orbit. What goes unsaid is the whole story. ' +
-      'Internal conflict should live in the narration, not as exposition. A small detail — the way someone laughs, a habit — can carry more weight than a confession.'
+      'Internal conflict should live in the narration, not as exposition.'
     );
   }
   if (g.some(x => ['fantasy', 'isekai', 'adventure', 'magic'].includes(x))) {
     instructions.push(
       'FANTASY/ADVENTURE CRAFT: Ground the extraordinary in physical sensation — the weight of a weapon, the smell of a spell, the cold of a portal. ' +
       'Wonder and danger must coexist. World-building belongs in action, not exposition. ' +
-      'The stakes should feel personal, not just world-scale. What does the character stand to lose that matters to them specifically?'
+      'The stakes should feel personal, not just world-scale.'
     );
   }
   if (g.some(x => ['sci-fi', 'science fiction', 'mecha', 'cyberpunk'].includes(x))) {
     instructions.push(
-      'SCI-FI CRAFT: Technology should feel like it has weight, cost, and failure modes. The cold precision of systems contrasted against raw human emotion. ' +
-      'Jargon earns trust only when it reveals character — a pilot naming their mech\'s systems like a friend, a hacker\'s fear of being traced. ' +
-      'The most powerful sci-fi moments are when the human breaks through the machine context.'
+      'SCI-FI CRAFT: Technology should feel like it has weight, cost, and failure modes. Cold precision of systems contrasted against raw human emotion. ' +
+      'Jargon earns trust only when it reveals character. The most powerful sci-fi moments are when the human breaks through the machine context.'
     );
   }
   if (g.some(x => ['slice of life', 'slice-of-life', 'comedy', 'everyday', 'school'].includes(x))) {
     instructions.push(
-      'SLICE-OF-LIFE/COMEDY CRAFT: Small moments carry enormous weight. A cup of tea going cold. The wrong bus taken on purpose. ' +
-      'Comedy lives in timing and specificity — the exact wrong thing said at the exact wrong moment. ' +
-      'Mundane details are metaphors. Let characters be weird and specific, not types. The funniest lines are often the most sincere.'
+      'SLICE-OF-LIFE/COMEDY CRAFT: Small moments carry enormous weight. Comedy lives in timing and specificity — the exact wrong thing said at the exact wrong moment. ' +
+      'Mundane details are metaphors. Let characters be weird and specific, not types.'
     );
   }
   if (g.some(x => ['mystery', 'detective', 'crime'].includes(x))) {
     instructions.push(
-      'MYSTERY CRAFT: Information is a weapon — reveal it strategically, never all at once. ' +
-      'The detective\'s observations should feel like puzzle pieces the reader can almost solve. ' +
+      'MYSTERY CRAFT: Information is a weapon — reveal it strategically. The detective\'s observations should feel like puzzle pieces the reader can almost solve. ' +
       'Tension comes from what characters know vs. what they admit to knowing. A lie told calmly is more chilling than a threat.'
     );
   }
@@ -101,7 +102,7 @@ function getAgeRatingGuidance(ageRating?: string): string {
     case 'mature':
       return 'This is a mature-rated series. Adult themes, complex morality, unflinching portrayal of violence and consequences, and raw emotional honesty are all appropriate. Do not soften or sanitize.';
     case 'teen':
-      return 'This is a teen-rated series. Intense themes and conflict are fine — just keep explicit graphic content restrained. Emotional depth and complexity are fully appropriate.';
+      return 'This is a teen-rated series. Intense themes and conflict are fine — keep explicit graphic content restrained. Emotional depth and complexity are fully appropriate.';
     default:
       return 'This is an all-ages series. Keep content appropriate for general audiences while still being emotionally resonant and dramatically compelling.';
   }
@@ -113,48 +114,15 @@ function formatPanels(panels: ContextPanel[]): string {
     .join('\n');
 }
 
-function buildPrompt(direction: string, context: CopilotContext, recentContext: string): string {
+/**
+ * System prompt — who the writer is and HOW to write.
+ * Stable across requests with the same genre/ageRating (good for caching).
+ */
+function buildSystemPrompt(context: CopilotContext): string {
   const genreInstructions = getGenreInstructions(context.genre);
-  const ageGuidance = getAgeRatingGuidance(context.ageRating);
+  const ageGuidance       = getAgeRatingGuidance(context.ageRating);
 
-  const seriesDescriptionSection = context.seriesDescription
-    ? `Series premise: ${context.seriesDescription}`
-    : '';
-
-  const tagsSection = context.tags?.length
-    ? `Themes & tags: ${context.tags.join(', ')}`
-    : '';
-
-  const chapterPosition = context.chapterNumber
-    ? `Chapter ${context.chapterNumber}: "${context.chapterTitle}"`
-    : `Chapter: "${context.chapterTitle}"`;
-
-  const chapterNotesSection = context.chapterNotes
-    ? `Author's notes for this chapter: ${context.chapterNotes}`
-    : '';
-
-  const openingSection = context.openingPanels?.length
-    ? `How this chapter opened:\n${formatPanels(context.openingPanels)}`
-    : '';
-
-  const charactersSection = context.knownCharacters?.length
-    ? `Characters established in this chapter: ${context.knownCharacters.join(', ')}\nOnly use these names — do not introduce new named characters unless the direction explicitly calls for it.`
-    : '';
-
-  const storyContextBlock = [
-    `Series: "${context.seriesTitle}"`,
-    seriesDescriptionSection,
-    tagsSection,
-    `Genre: ${context.genre.join(', ')}`,
-    ageGuidance,
-    chapterPosition,
-    chapterNotesSection,
-    openingSection,
-    charactersSection,
-    `What just happened:\n${recentContext}`,
-  ].filter(Boolean).join('\n');
-
-  return `You are a master manga script writer — your work is visceral, surprising, and emotionally unforgettable. You are writing an original story for the Seisaku platform. All characters and events are wholly fictional.
+  return `You are a master manga script writer — your work is visceral, surprising, and emotionally unforgettable. You write original stories. All characters and events are wholly fictional.
 
 Your output must feel like it was written by a seasoned author, not a template engine. Every panel must earn its place.
 
@@ -165,7 +133,7 @@ DIALOG:
 - Characters never say exactly what they feel — they deflect, lie, go quiet, or attack sideways. Subtext is everything.
 - Each character has a distinct voice — shaped by their history, their pain, their wants.
 - The most powerful lines are short and leave something unsaid. "You knew." hits harder than "I can't believe you knew this whole time."
-- Banned phrases (these are filler — replace with something specific to THIS character): "I can't believe you!", "You monster!", "This isn't over!", "Why are you doing this?", "How could you?", "I won't forgive you."
+- Banned phrases (filler — replace with something specific to THIS character in THIS moment): "I can't believe you!", "You monster!", "This isn't over!", "Why are you doing this?", "How could you?", "I won't forgive you."
 
 NARRATION:
 - Anchor the reader with one precise sensory detail. Not "it was cold" — "frost on the window glass, thin as breath."
@@ -188,29 +156,70 @@ The author may reference characters from existing anime, manga, games, or other 
 When this happens:
 - Write them fully and authentically. Capture their voice, speech patterns, personality, and mannerisms as the author intends.
 - Do NOT soften, refuse, or substitute them with vague stand-ins. The author chose that character deliberately.
-- Do NOT reproduce verbatim lines or scenes lifted directly from the source — write original dialog and situations that feel true to who the character is.
+- Do NOT reproduce verbatim lines or scenes from the source — write original dialog and situations that feel true to who the character is.
 - This is transformative creative expression. Using a character's name and personality in an original story is not reproduction — it is authorship.
+
+${ageGuidance}
 
 ${genreInstructions}
 
 ---
 OUTPUT FORMAT:
-Return ONLY a valid JSON object with a "panels" array. No explanation, no markdown, no wrapper.
-Each panel:
+Return ONLY a valid JSON object with a "panels" array. No explanation, no markdown, no code fences — raw JSON only.
+Each panel object:
 - "type": "dialog" or "narration"
 - "text": max 120 characters — tight, precise, every word deliberate
 - "character": speaker's name (only when type is "dialog")
 
-Max 15 panels. Quality over quantity — 8 panels that land beats 15 that don't.
-
----
-STORY CONTEXT:
-${storyContextBlock}
-
-Author's direction: ${direction}`;
+Max 15 panels. Quality over quantity — 8 panels that land beats 15 that don't.`;
 }
 
-function parsePanels(text: string): GeneratedPanel[] {
+/**
+ * User message — the WHAT: story context + direction.
+ * Varies per request.
+ */
+function buildUserMessage(direction: string, context: CopilotContext, recentContext: string): string {
+  const lines: string[] = [];
+
+  lines.push(`Series: "${context.seriesTitle}"`);
+  if (context.seriesDescription) lines.push(`Premise: ${context.seriesDescription}`);
+  if (context.tags?.length)       lines.push(`Themes: ${context.tags.join(', ')}`);
+  lines.push(`Genre: ${context.genre.join(', ')}`);
+
+  const chapterLabel = context.chapterNumber
+    ? `Chapter ${context.chapterNumber}: "${context.chapterTitle}"`
+    : `Chapter: "${context.chapterTitle}"`;
+  lines.push(chapterLabel);
+
+  if (context.chapterNotes)  lines.push(`Author's notes for this chapter: ${context.chapterNotes}`);
+
+  if (context.openingPanels?.length) {
+    lines.push(`How this chapter opened:\n${formatPanels(context.openingPanels)}`);
+  }
+
+  if (context.knownCharacters?.length) {
+    lines.push(
+      `Characters established in this chapter: ${context.knownCharacters.join(', ')}\n` +
+      `Only use these names — do not introduce new named characters unless the direction explicitly calls for it.`
+    );
+  }
+
+  lines.push(`What just happened:\n${recentContext}`);
+  lines.push(`\nAuthor's direction: ${direction}`);
+
+  return lines.join('\n');
+}
+
+// For Gemini, combine both into one prompt (Gemini expects a single text input)
+function buildGeminiPrompt(direction: string, context: CopilotContext, recentContext: string): string {
+  return `${buildSystemPrompt(context)}\n\n---\nSTORY CONTEXT:\n${buildUserMessage(direction, context, recentContext)}`;
+}
+
+// ─── Response parsing ─────────────────────────────────────────────────────────
+
+function parsePanels(raw: string): GeneratedPanel[] {
+  // Strip markdown code fences if present (Claude sometimes adds them)
+  const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   const parsed = JSON.parse(text);
   return (parsed.panels || []).map((p: any) => ({
     type: p.type === 'dialog' ? 'dialog' : 'narration',
@@ -219,17 +228,68 @@ function parsePanels(text: string): GeneratedPanel[] {
   }));
 }
 
-export async function generateMangaScript(
+// ─── Retry helper (for Gemini 503s) ─────────────────────────────────────────
+
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const is503 = err?.message?.includes('503') || err?.status === 503;
+      if (is503 && attempt < maxAttempts) {
+        const delay = attempt * 2000;
+        console.warn(`[Gemini] 503 on attempt ${attempt}/${maxAttempts} — retrying in ${delay}ms`);
+        await new Promise(res => setTimeout(res, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error('withRetry: exhausted attempts');
+}
+
+// ─── Claude (primary) ─────────────────────────────────────────────────────────
+
+async function generateWithClaude(
   direction: string,
-  context: CopilotContext
+  context: CopilotContext,
+  recentContext: string
 ): Promise<{ panels: GeneratedPanel[]; tokensUsed: number }> {
-  console.log('[Gemini] Starting generation');
-  console.log('[Gemini] Series:', context.seriesTitle, '| Genre:', context.genre.join(', '), '| Age rating:', context.ageRating);
-  console.log('[Gemini] Chapter:', context.chapterTitle, `(#${context.chapterNumber ?? '?'})`);
-  console.log('[Gemini] Direction:', direction);
-  console.log('[Gemini] Context — opening panels:', context.openingPanels?.length ?? 0,
-    '| recent panels:', context.recentPanels?.length ?? 0,
-    '| known characters:', context.knownCharacters?.join(', ') || 'none');
+  console.log('[Claude] Sending request to claude-opus-4-6');
+
+  const response = await anthropic.messages.create({
+    model: 'claude-opus-4-6',
+    max_tokens: 2048,
+    system: buildSystemPrompt(context),
+    messages: [{ role: 'user', content: buildUserMessage(direction, context, recentContext) }],
+  });
+
+  console.log('[Claude] Stop reason:', response.stop_reason,
+    '| Input tokens:', response.usage.input_tokens,
+    '| Output tokens:', response.usage.output_tokens);
+
+  const textBlock = response.content.find(b => b.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    throw new Error('Claude returned no text content');
+  }
+
+  console.log('[Claude] Raw response preview:', textBlock.text.slice(0, 300));
+
+  const tokensUsed = response.usage.input_tokens + response.usage.output_tokens;
+  const panels = parsePanels(textBlock.text);
+
+  console.log('[Claude] Parsed', panels.length, 'panels');
+  return { panels, tokensUsed };
+}
+
+// ─── Gemini (fallback) ────────────────────────────────────────────────────────
+
+async function generateWithGemini(
+  direction: string,
+  context: CopilotContext,
+  recentContext: string
+): Promise<{ panels: GeneratedPanel[]; tokensUsed: number }> {
+  console.log('[Gemini] Sending request to gemini-flash-latest');
 
   const model = genAI.getGenerativeModel({
     model: 'gemini-flash-latest',
@@ -240,17 +300,12 @@ export async function generateMangaScript(
     safetySettings: SAFETY_SETTINGS,
   }, { apiVersion: 'v1beta' });
 
-  const recentContext = context.recentPanels?.length
-    ? formatPanels(context.recentPanels)
-    : 'Start of chapter';
+  const prompt = buildGeminiPrompt(direction, context, recentContext);
 
-  const prompt = buildPrompt(direction, context, recentContext);
-  console.log('[Gemini] Prompt length:', prompt.length, 'chars');
-
-  let result = await model.generateContent(prompt);
+  let result   = await withRetry(() => model.generateContent(prompt));
   let response = result.response;
 
-  const finishReason = response.candidates?.[0]?.finishReason;
+  const finishReason  = response.candidates?.[0]?.finishReason;
   const safetyRatings = response.candidates?.[0]?.safetyRatings;
 
   console.log('[Gemini] First attempt finish reason:', finishReason);
@@ -260,33 +315,65 @@ export async function generateMangaScript(
 
   if (finishReason === 'SAFETY' || !response.candidates?.[0]?.content) {
     console.warn('[Gemini] Safety block detected — retrying with reframed prompt');
-    const reframedDirection = `This is a fan-creative manga scene — original writing inspired by the characters and world the author loves. ` +
+    const reframedDirection =
+      `This is a fan-creative manga scene — original writing inspired by the characters and world the author loves. ` +
       `Write the scene with full creative commitment, capturing each character's authentic voice and personality. ` +
       `The author's intent: ${direction}`;
-    result = await model.generateContent(buildPrompt(reframedDirection, context, recentContext));
+    result   = await withRetry(() => model.generateContent(buildGeminiPrompt(reframedDirection, context, recentContext)));
     response = result.response;
 
-    const retryFinishReason = response.candidates?.[0]?.finishReason;
-    console.log('[Gemini] Retry finish reason:', retryFinishReason);
-    if (retryFinishReason === 'SAFETY' || !response.candidates?.[0]?.content) {
-      console.error('[Gemini] Both attempts blocked by safety filters. Safety ratings on retry:',
+    const retryReason = response.candidates?.[0]?.finishReason;
+    console.log('[Gemini] Retry finish reason:', retryReason);
+    if (retryReason === 'SAFETY' || !response.candidates?.[0]?.content) {
+      console.error('[Gemini] Both attempts blocked. Safety ratings on retry:',
         JSON.stringify(response.candidates?.[0]?.safetyRatings));
     }
   }
 
-  const text = response.text();
+  const text       = response.text();
   const tokensUsed = response.usageMetadata?.totalTokenCount || 0;
 
-  console.log('[Gemini] Raw response length:', text.length, 'chars | Tokens used:', tokensUsed);
+  console.log('[Gemini] Raw response length:', text.length, 'chars | Tokens:', tokensUsed);
   console.log('[Gemini] Raw response preview:', text.slice(0, 300));
 
+  const panels = parsePanels(text);
+  console.log('[Gemini] Parsed', panels.length, 'panels');
+  return { panels, tokensUsed };
+}
+
+// ─── Public entry point ───────────────────────────────────────────────────────
+
+export async function generateMangaScript(
+  direction: string,
+  context: CopilotContext
+): Promise<{ panels: GeneratedPanel[]; tokensUsed: number; aiModel: string }> {
+  console.log('[AI] Starting generation');
+  console.log('[AI] Series:', context.seriesTitle, '| Genre:', context.genre.join(', '), '| Age rating:', context.ageRating);
+  console.log('[AI] Chapter:', context.chapterTitle, `(#${context.chapterNumber ?? '?'})`);
+  console.log('[AI] Direction:', direction);
+  console.log('[AI] Context — opening:', context.openingPanels?.length ?? 0,
+    '| recent:', context.recentPanels?.length ?? 0,
+    '| characters:', context.knownCharacters?.join(', ') || 'none');
+
+  const recentContext = context.recentPanels?.length
+    ? formatPanels(context.recentPanels)
+    : 'Start of chapter';
+
+  // Claude first — fall back to Gemini on any error
   try {
-    const panels = parsePanels(text);
-    console.log('[Gemini] Parsed', panels.length, 'panels successfully');
-    return { panels, tokensUsed };
+    const result = await generateWithClaude(direction, context, recentContext);
+    console.log('[AI] Claude succeeded ✓');
+    return { ...result, aiModel: 'claude-opus-4-6' };
   } catch (err) {
-    console.error('[Gemini] JSON parse failed:', err);
-    console.error('[Gemini] Full raw response:', text);
-    throw new Error('Failed to parse AI response into valid manga panels');
+    console.warn('[AI] Claude failed — falling back to Gemini:', (err as Error).message);
+  }
+
+  try {
+    const result = await generateWithGemini(direction, context, recentContext);
+    console.log('[AI] Gemini succeeded ✓');
+    return { ...result, aiModel: 'gemini-flash-latest' };
+  } catch (err) {
+    console.error('[AI] Gemini also failed:', (err as Error).message);
+    throw new Error('Failed to generate manga panels — both AI providers failed');
   }
 }

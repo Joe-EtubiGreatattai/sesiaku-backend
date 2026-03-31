@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
     "@clerk/backend": "^3.2.3",
     "@google/generative-ai": "^0.24.1",
     "@types/socket.io": "^3.0.1",
