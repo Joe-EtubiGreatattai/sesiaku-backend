@@ -6,7 +6,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-type UploadType = 'avatar' | 'cover';
+type UploadType = 'avatar' | 'cover' | 'panel';
 
 const TRANSFORMATIONS: Record<UploadType, object> = {
   avatar: {
@@ -19,6 +19,12 @@ const TRANSFORMATIONS: Record<UploadType, object> = {
     crop: 'fill',
     format: 'webp', quality: 'auto:good',
   },
+  // Panels are artwork — preserve aspect ratio, cap width, keep quality high
+  panel: {
+    width: 1200,
+    crop: 'limit',
+    format: 'webp', quality: 'auto:best',
+  },
 };
 
 export async function uploadImage(
@@ -29,7 +35,7 @@ export async function uploadImage(
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        folder: `seisaku/${type === 'avatar' ? 'avatars' : 'covers'}/${folder}`,
+        folder: `seisaku/${type === 'avatar' ? 'avatars' : type === 'cover' ? 'covers' : 'panels'}/${folder}`,
         transformation: TRANSFORMATIONS[type],
         resource_type: 'image',
       },

@@ -34,9 +34,9 @@ router.delete('/:mangaId/chapters/:chapterId', authenticate, manga.deleteChapter
 router.post('/:mangaId/chapters/:chapterId/publish', authenticate, manga.publishChapter);
 
 // Panels
-router.post('/:mangaId/chapters/:chapterId/panels', authenticate, manga.createPanel);
+router.post('/:mangaId/chapters/:chapterId/panels', authenticate, manga.panelUpload.single('image'), manga.createPanel);
 router.post('/:mangaId/chapters/:chapterId/panels/batch', authenticate, manga.createPanelsBatch);
-router.patch('/:mangaId/chapters/:chapterId/panels/:panelId', authenticate, manga.updatePanel);
+router.patch('/:mangaId/chapters/:chapterId/panels/:panelId', authenticate, manga.panelUpload.single('image'), manga.updatePanel);
 router.delete('/:mangaId/chapters/:chapterId/panels/:panelId', authenticate, manga.deletePanel);
 router.patch('/:mangaId/chapters/:chapterId/panels/reorder', authenticate, manga.reorderPanels);
 

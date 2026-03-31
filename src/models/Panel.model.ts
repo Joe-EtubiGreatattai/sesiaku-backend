@@ -5,11 +5,13 @@ export interface IPanel extends Document {
   mangaId: mongoose.Types.ObjectId;
   authorId: mongoose.Types.ObjectId;
   order: number;
-  panelType: 'dialog' | 'narration' | 'image-placeholder';
+  panelType: 'dialog' | 'narration' | 'image-placeholder' | 'image';
   content: {
     characterName?: string;
-    text: string;
+    text?: string;
     placeholderNote?: string;
+    imageUrl?: string;
+    imagePublicId?: string;
   };
   isAiGenerated: boolean;
   copilotLogId?: mongoose.Types.ObjectId;
@@ -21,11 +23,13 @@ const PanelSchema = new Schema<IPanel>(
     mangaId: { type: Schema.Types.ObjectId, ref: 'Manga', required: true },
     authorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order: { type: Number, required: true },
-    panelType: { type: String, enum: ['dialog', 'narration', 'image-placeholder'], required: true },
+    panelType: { type: String, enum: ['dialog', 'narration', 'image-placeholder', 'image'], required: true },
     content: {
       characterName: { type: String, maxlength: 60 },
-      text: { type: String, required: true, maxlength: 500 },
+      text: { type: String, maxlength: 500 },
       placeholderNote: { type: String },
+      imageUrl: { type: String },
+      imagePublicId: { type: String },
     },
     isAiGenerated: { type: Boolean, default: false },
     copilotLogId: { type: Schema.Types.ObjectId, ref: 'CopilotLog' },

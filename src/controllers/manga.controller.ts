@@ -13,6 +13,7 @@ import Notification, { NotificationType } from '../models/Notification.model';
 import { emitToUser, emitToRoom } from '../utils/socket';
 
 export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+export const panelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // --- Series ---
 
@@ -439,17 +440,37 @@ export async function publishChapter(req: AuthRequest, res: Response): Promise<v
 export async function createPanel(req: AuthRequest, res: Response): Promise<void> {
   const chapter = await Chapter.findOne({ _id: req.params.chapterId, authorId: req.user!._id });
   if (!chapter) { res.status(404).json({ error: 'Chapter not found' }); return; }
+
   const { panelType, content, isAiGenerated, copilotLogId } = req.body;
-  if (!panelType || !content?.text) { res.status(400).json({ error: 'panelType and content.text required' }); return; }
+  if (!panelType) { res.status(400).json({ error: 'panelType is required' }); return; }
+
+  const isImagePanel = panelType === 'image';
+
+  if (isImagePanel && !req.file) {
+    res.status(400).json({ error: 'An image file is required for image panels' }); return;
+  }
+  if (!isImagePanel && !content?.text) {
+    res.status(400).json({ error: 'content.text is required for non-image panels' }); return;
+  }
+
+  const panelContent = { ...(content || {}) };
+
+  if (isImagePanel && req.file) {
+    const uploaded = await uploadImage(req.file.buffer, 'panel', `${chapter.mangaId}/${chapter._id}`);
+    panelContent.imageUrl = uploaded.url;
+    panelContent.imagePublicId = uploaded.publicId;
+  }
+
   const lastPanel = await Panel.findOne({ chapterId: chapter._id }).sort({ order: -1 });
   const order = (lastPanel?.order || 0) + 1;
+
   const panel = await Panel.create({
     chapterId: chapter._id,
     mangaId: chapter.mangaId,
     authorId: req.user!._id,
     order,
     panelType,
-    content,
+    content: panelContent,
     isAiGenerated: isAiGenerated || false,
     copilotLogId,
   });
@@ -484,9 +505,25 @@ export async function createPanelsBatch(req: AuthRequest, res: Response): Promis
 export async function updatePanel(req: AuthRequest, res: Response): Promise<void> {
   const panel = await Panel.findOne({ _id: req.params.panelId, authorId: req.user!._id });
   if (!panel) { res.status(404).json({ error: 'Panel not found' }); return; }
+
   const { content, panelType } = req.body;
-  if (content) panel.content = content;
+
+  if (req.file) {
+    // Replace existing image — delete old one first
+    if (panel.content.imagePublicId) {
+      await deleteImage(panel.content.imagePublicId);
+    }
+    const uploaded = await uploadImage(req.file.buffer, 'panel', `${panel.mangaId}/${panel.chapterId}`);
+    panel.content = {
+      ...panel.content,
+      imageUrl: uploaded.url,
+      imagePublicId: uploaded.publicId,
+    };
+  }
+
+  if (content) panel.content = { ...panel.content, ...content };
   if (panelType) panel.panelType = panelType;
+
   await panel.save();
   res.json({ panel });
 }
@@ -494,6 +531,9 @@ export async function updatePanel(req: AuthRequest, res: Response): Promise<void
 export async function deletePanel(req: AuthRequest, res: Response): Promise<void> {
   const panel = await Panel.findOne({ _id: req.params.panelId, authorId: req.user!._id });
   if (!panel) { res.status(404).json({ error: 'Panel not found' }); return; }
+  if (panel.content.imagePublicId) {
+    await deleteImage(panel.content.imagePublicId);
+  }
   await Panel.findByIdAndDelete(panel._id);
   await Chapter.findByIdAndUpdate(panel.chapterId, { $inc: { panelCount: -1 } });
   res.json({ message: 'Panel deleted' });

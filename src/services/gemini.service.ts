@@ -223,6 +223,14 @@ export async function generateMangaScript(
   direction: string,
   context: CopilotContext
 ): Promise<{ panels: GeneratedPanel[]; tokensUsed: number }> {
+  console.log('[Gemini] Starting generation');
+  console.log('[Gemini] Series:', context.seriesTitle, '| Genre:', context.genre.join(', '), '| Age rating:', context.ageRating);
+  console.log('[Gemini] Chapter:', context.chapterTitle, `(#${context.chapterNumber ?? '?'})`);
+  console.log('[Gemini] Direction:', direction);
+  console.log('[Gemini] Context — opening panels:', context.openingPanels?.length ?? 0,
+    '| recent panels:', context.recentPanels?.length ?? 0,
+    '| known characters:', context.knownCharacters?.join(', ') || 'none');
+
   const model = genAI.getGenerativeModel({
     model: 'gemini-flash-latest',
     generationConfig: {
@@ -237,28 +245,48 @@ export async function generateMangaScript(
     : 'Start of chapter';
 
   const prompt = buildPrompt(direction, context, recentContext);
+  console.log('[Gemini] Prompt length:', prompt.length, 'chars');
 
   let result = await model.generateContent(prompt);
   let response = result.response;
 
-  // Retry with reframed direction if safety-blocked
   const finishReason = response.candidates?.[0]?.finishReason;
+  const safetyRatings = response.candidates?.[0]?.safetyRatings;
+
+  console.log('[Gemini] First attempt finish reason:', finishReason);
+  if (safetyRatings?.length) {
+    console.log('[Gemini] Safety ratings:', JSON.stringify(safetyRatings));
+  }
+
   if (finishReason === 'SAFETY' || !response.candidates?.[0]?.content) {
-    console.warn('Gemini safety block — retrying with reframed prompt');
+    console.warn('[Gemini] Safety block detected — retrying with reframed prompt');
     const reframedDirection = `This is a fan-creative manga scene — original writing inspired by the characters and world the author loves. ` +
       `Write the scene with full creative commitment, capturing each character's authentic voice and personality. ` +
       `The author's intent: ${direction}`;
     result = await model.generateContent(buildPrompt(reframedDirection, context, recentContext));
     response = result.response;
+
+    const retryFinishReason = response.candidates?.[0]?.finishReason;
+    console.log('[Gemini] Retry finish reason:', retryFinishReason);
+    if (retryFinishReason === 'SAFETY' || !response.candidates?.[0]?.content) {
+      console.error('[Gemini] Both attempts blocked by safety filters. Safety ratings on retry:',
+        JSON.stringify(response.candidates?.[0]?.safetyRatings));
+    }
   }
 
   const text = response.text();
   const tokensUsed = response.usageMetadata?.totalTokenCount || 0;
 
+  console.log('[Gemini] Raw response length:', text.length, 'chars | Tokens used:', tokensUsed);
+  console.log('[Gemini] Raw response preview:', text.slice(0, 300));
+
   try {
-    return { panels: parsePanels(text), tokensUsed };
+    const panels = parsePanels(text);
+    console.log('[Gemini] Parsed', panels.length, 'panels successfully');
+    return { panels, tokensUsed };
   } catch (err) {
-    console.error('Gemini JSON Parse Error:', err, 'Raw text:', text);
+    console.error('[Gemini] JSON parse failed:', err);
+    console.error('[Gemini] Full raw response:', text);
     throw new Error('Failed to parse AI response into valid manga panels');
   }
 }

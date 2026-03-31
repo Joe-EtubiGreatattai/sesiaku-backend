@@ -11,34 +11,51 @@ const PLAN_LIMITS: Record<string, number> = { free: 10, basic: 80, pro: 300 };
 
 export async function copilot(req: AuthRequest, res: Response): Promise<void> {
   const { mangaId, chapterId, direction, context } = req.body;
-  if (!direction?.trim()) { res.status(400).json({ error: 'Direction is required' }); return; }
+
+  console.log('[Copilot] Request received:', { userId: req.user!._id, mangaId, chapterId, direction });
+
+  if (!direction?.trim()) {
+    console.log('[Copilot] Rejected — direction is missing');
+    res.status(400).json({ error: 'Direction is required' }); return;
+  }
 
   const [chapter, manga] = await Promise.all([
     Chapter.findOne({ _id: chapterId, mangaId, authorId: req.user!._id }),
     Manga.findById(mangaId).select('title description genre tags ageRating'),
   ]);
 
-  if (!chapter) { res.status(404).json({ error: 'Chapter not found' }); return; }
-  if (!manga)   { res.status(404).json({ error: 'Manga not found' }); return; }
+  if (!chapter) {
+    console.log('[Copilot] Rejected — chapter not found:', { chapterId, mangaId, userId: req.user!._id });
+    res.status(404).json({ error: 'Chapter not found' }); return;
+  }
+  if (!manga) {
+    console.log('[Copilot] Rejected — manga not found:', { mangaId });
+    res.status(404).json({ error: 'Manga not found' }); return;
+  }
 
-  // Fetch all panels in this chapter sorted by order
+  console.log('[Copilot] Manga:', manga.title, '| Chapter:', chapter.title, `(#${chapter.chapterNumber})`);
+  console.log('[Copilot] Genre:', manga.genre, '| Age rating:', manga.ageRating);
+
   const allChapterPanels = await Panel.find({ chapterId }).sort({ order: 1 }).select('order panelType content');
+  console.log('[Copilot] Total panels in chapter:', allChapterPanels.length,
+    '| Types:', allChapterPanels.map(p => p.panelType).join(', ') || 'none');
 
-  // First 2 panels establish chapter tone; last 5 give immediate prior context
   const OPENING_COUNT = 2;
   const RECENT_COUNT  = 5;
 
-  const openingPanels: ContextPanel[] = allChapterPanels
-    .slice(0, OPENING_COUNT)
-    .map(p => ({ type: p.panelType as 'dialog' | 'narration', text: p.content.text, character: p.content.characterName }));
+  const textPanels = allChapterPanels.filter(p => p.panelType !== 'image' && p.content.text);
+  console.log('[Copilot] Text panels for context:', textPanels.length);
 
-  // Avoid duplicating panels that appear in both opening and recent windows
-  const recentStart = Math.max(OPENING_COUNT, allChapterPanels.length - RECENT_COUNT);
-  const recentPanels: ContextPanel[] = allChapterPanels
-    .slice(recentStart)
-    .map(p => ({ type: p.panelType as 'dialog' | 'narration', text: p.content.text, character: p.content.characterName }));
+  const toContextPanel = (p: typeof textPanels[0]): ContextPanel => ({
+    type: p.panelType as 'dialog' | 'narration',
+    text: p.content.text as string,
+    character: p.content.characterName,
+  });
 
-  // Deduplicate character names from all dialog panels in the chapter
+  const openingPanels: ContextPanel[] = textPanels.slice(0, OPENING_COUNT).map(toContextPanel);
+  const recentStart = Math.max(OPENING_COUNT, textPanels.length - RECENT_COUNT);
+  const recentPanels: ContextPanel[] = textPanels.slice(recentStart).map(toContextPanel);
+
   const knownCharacters = [
     ...new Set(
       allChapterPanels
@@ -46,6 +63,10 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
         .map(p => p.content.characterName as string)
     ),
   ];
+
+  console.log('[Copilot] Known characters:', knownCharacters.length ? knownCharacters.join(', ') : 'none');
+  console.log('[Copilot] Opening panels:', openingPanels.length, '| Recent panels:', recentPanels.length);
+  console.log('[Copilot] Sending to Gemini...');
 
   const { panels, tokensUsed } = await generateMangaScript(direction, {
     seriesTitle:       manga.title,
@@ -59,9 +80,10 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
     openingPanels:     openingPanels.length  ? openingPanels  : undefined,
     recentPanels:      recentPanels.length   ? recentPanels   : undefined,
     knownCharacters:   knownCharacters.length ? knownCharacters : undefined,
-    // Allow caller to override context fields (e.g. from client-side state)
     ...context,
   });
+
+  console.log('[Copilot] Gemini returned', panels.length, 'panels | Tokens used:', tokensUsed);
 
   const log = await CopilotLog.create({
     userId: req.user!._id,
@@ -75,6 +97,7 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
 
   await User.findByIdAndUpdate(req.user!._id, { $inc: { aiUsageThisMonth: 1 } });
 
+  console.log('[Copilot] Done. Log ID:', log._id);
   res.json({ panels, copilotLogId: log._id, tokensUsed });
 }
 
