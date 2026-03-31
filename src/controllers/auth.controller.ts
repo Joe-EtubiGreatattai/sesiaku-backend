@@ -21,3 +21,22 @@ export async function sync(req: AuthRequest, res: Response): Promise<void> {
   // Middelware already did the sync
   res.json({ user: req.user, message: 'Sync successful' });
 }
+
+/*
+* Sets the initial subscription tier and signs off on onboarding.
+*/
+export async function completeOnboarding(req: AuthRequest, res: Response): Promise<void> {
+  const { tier } = req.body;
+  if (!['free', 'basic', 'pro'].includes(tier)) {
+    res.status(400).json({ error: 'Invalid subscription tier selected' });
+    return;
+  }
+  if (!req.user) {
+    res.status(401).json({ error: 'Not authenticated' });
+    return;
+  }
+  req.user.subscriptionTier = tier;
+  req.user.onboardingCompleted = true;
+  await req.user.save();
+  res.json({ user: req.user, message: 'Onboarding completed successfully' });
+}

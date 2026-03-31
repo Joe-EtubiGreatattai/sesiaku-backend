@@ -24,6 +24,7 @@ export interface IUser extends Document {
   aiUsageResetDate: Date;
   clerkId?: string;
   refreshTokens: string[];
+  onboardingCompleted: boolean;
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -59,6 +60,7 @@ const UserSchema = new Schema<IUser>(
     },
     clerkId: { type: String, unique: true, sparse: true },
     refreshTokens: [{ type: String }],
+    onboardingCompleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

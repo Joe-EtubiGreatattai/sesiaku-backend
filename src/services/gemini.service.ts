@@ -218,9 +218,11 @@ function buildGeminiPrompt(direction: string, context: CopilotContext, recentCon
 // ─── Response parsing ─────────────────────────────────────────────────────────
 
 function parsePanels(raw: string): GeneratedPanel[] {
-  // Strip markdown code fences if present (Claude sometimes adds them)
-  const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  const parsed = JSON.parse(text);
+  // Extract the JSON object directly — handles leading newlines, code fences,
+  // extra explanation text, or any other wrapping Claude/Gemini might add
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`No JSON object found in AI response. Raw: ${raw.slice(0, 200)}`);
+  const parsed = JSON.parse(match[0]);
   return (parsed.panels || []).map((p: any) => ({
     type: p.type === 'dialog' ? 'dialog' : 'narration',
     text: String(p.text || '').slice(0, 500),
