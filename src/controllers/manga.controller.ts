@@ -1,5 +1,8 @@
 import { Response } from 'express';
 import multer from 'multer';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require('pdf-parse');
+import mammoth from 'mammoth';
 import Manga from '../models/Manga.model';
 import Chapter from '../models/Chapter.model';
 import Panel from '../models/Panel.model';
@@ -13,7 +16,7 @@ import Notification, { NotificationType } from '../models/Notification.model';
 import { emitToUser, emitToRoom } from '../utils/socket';
 
 export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-export const panelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+export const panelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 // --- Series ---
 
@@ -500,6 +503,89 @@ export async function createPanelsBatch(req: AuthRequest, res: Response): Promis
   const created = await Panel.insertMany(newPanels);
   await Chapter.findByIdAndUpdate(chapter._id, { $inc: { panelCount: created.length } });
   res.status(201).json({ panels: created });
+}
+
+export async function bulkUploadPanels(req: AuthRequest, res: Response): Promise<void> {
+  console.log('[bulkUpload] request received — chapterId:', req.params.chapterId);
+
+  const chapter = await Chapter.findOne({ _id: req.params.chapterId, authorId: req.user!._id });
+  if (!chapter) { res.status(404).json({ error: 'Chapter not found' }); return; }
+
+  const files = req.files as any[];
+  console.log('[bulkUpload] files received:', files?.length ?? 0, files?.map((f: any) => ({ name: f.originalname, mimetype: f.mimetype, size: f.size })));
+  if (!files || files.length === 0) { res.status(400).json({ error: 'No files uploaded' }); return; }
+
+  const lastPanel = await Panel.findOne({ chapterId: chapter._id }).sort({ order: -1 });
+  let order = (lastPanel?.order || 0) + 1;
+
+  const createdPanels = [];
+
+  for (const file of files) {
+    console.log('[bulkUpload] processing file:', file.originalname, '| mimetype:', file.mimetype, '| size:', file.size);
+
+    if (file.mimetype.startsWith('image/')) {
+      console.log('[bulkUpload] uploading image to Cloudinary...');
+      const uploaded = await uploadImage(file.buffer, 'panel', `${chapter.mangaId}/${chapter._id}`);
+      console.log('[bulkUpload] image uploaded:', uploaded.url);
+      const panel = await Panel.create({
+        chapterId: chapter._id,
+        mangaId: chapter.mangaId,
+        authorId: req.user!._id,
+        order: order++,
+        panelType: 'image',
+        content: {
+          imageUrl: uploaded.url,
+          imagePublicId: uploaded.publicId,
+        },
+      });
+      createdPanels.push(panel);
+    } else {
+      // Extract text from supported document formats
+      let textContent: string | null = null;
+
+      if (file.mimetype === 'text/plain') {
+        console.log('[bulkUpload] parsing as plain text');
+        textContent = file.buffer.toString('utf-8');
+      } else if (file.mimetype === 'application/pdf') {
+        console.log('[bulkUpload] parsing PDF with pdf-parse...');
+        const pdfData = await pdfParse(file.buffer);
+        textContent = pdfData.text;
+        console.log('[bulkUpload] PDF parsed, text length:', textContent.length);
+      } else if (
+        file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.mimetype === 'application/msword'
+      ) {
+        console.log('[bulkUpload] parsing DOCX with mammoth...');
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        textContent = result.value;
+        console.log('[bulkUpload] DOCX parsed, text length:', textContent.length);
+      } else {
+        console.log('[bulkUpload] unsupported mimetype, skipping:', file.mimetype);
+      }
+
+      if (textContent) {
+        const paragraphs = textContent.split(/\n\s*\n/).filter((p: string) => p.trim());
+        console.log('[bulkUpload] split into', paragraphs.length, 'paragraphs');
+        for (const paragraph of paragraphs) {
+          const panel = await Panel.create({
+            chapterId: chapter._id,
+            mangaId: chapter.mangaId,
+            authorId: req.user!._id,
+            order: order++,
+            panelType: 'narration',
+            content: { text: paragraph.trim().substring(0, 500) },
+          });
+          createdPanels.push(panel);
+        }
+      } else if (file.mimetype !== 'text/plain' && !file.mimetype.startsWith('image/')) {
+        console.log('[bulkUpload] no text extracted from file');
+      }
+    }
+  }
+
+  console.log('[bulkUpload] done — total panels created:', createdPanels.length);
+  await Chapter.findByIdAndUpdate(chapter._id, { $inc: { panelCount: createdPanels.length } });
+  res.status(201).json({ panels: createdPanels });
 }
 
 export async function updatePanel(req: AuthRequest, res: Response): Promise<void> {

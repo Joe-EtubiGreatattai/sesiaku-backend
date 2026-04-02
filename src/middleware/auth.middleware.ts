@@ -33,23 +33,49 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     let user = await User.findOne({ clerkId: clerkUserId });
 
     if (!user) {
+      console.log(`[Auth] User ${clerkUserId} not found in DB. Attempting to sync from Clerk...`);
       // Sync from Clerk if user doesn't exist in our DB yet
       try {
         const clerkUser = await clerkClient.users.getUser(clerkUserId);
-        const email = clerkUser.emailAddresses[0]?.emailAddress || '';
-        const username = clerkUser.username || email.split('@')[0] || `user_${clerkUserId.slice(-6)}`;
-        const displayName = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || username;
+        console.log(`[Auth] Fetched Clerk user:`, JSON.stringify({
+          id: clerkUser.id,
+           emailAddresses: clerkUser.emailAddresses,
+           unsafeMetadata: clerkUser.unsafeMetadata,
+           username: clerkUser.username,
+           firstName: clerkUser.firstName,
+           lastName: clerkUser.lastName
+        }, null, 2));
 
-        user = await User.create({
-          clerkId: clerkUserId,
-          email: email.toLowerCase(),
-          username: username.toLowerCase().replace(/[^a-z0-9_]/g, ''),
-          displayName,
-          avatarUrl: clerkUser.imageUrl,
-          isEmailVerified: true, // Clerk handles verification
-        });
+        const email = clerkUser.emailAddresses[0]?.emailAddress || '';
+        
+        // Check unsafeMetadata first (from our custom registration), then fall back
+        const customUsername = clerkUser.unsafeMetadata?.username as string | undefined;
+        const customDisplayName = clerkUser.unsafeMetadata?.displayName as string | undefined;
+        console.log(`[Auth] Extracted unsafeMetadata: customUsername=${customUsername || 'none'}, customDisplayName=${customDisplayName || 'none'}`);
+
+        const username = customUsername || clerkUser.username || email.split('@')[0] || `user_${clerkUserId.slice(-6)}`;
+        const displayName = customDisplayName || `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || username;
+        console.log(`[Auth] Final computed values: username=${username}, displayName=${displayName}`);
+
+        // Check if a user with this email already exists but has no/different clerkId
+        let existingUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+          existingUser.clerkId = clerkUserId;
+          user = await existingUser.save();
+          console.log(`[Auth] User already existed by email! Updated clerkId for DB user ID: ${user._id}`);
+        } else {
+          user = await User.create({
+            clerkId: clerkUserId,
+            email: email.toLowerCase(),
+            username: username.toLowerCase().replace(/[^a-z0-9_]/g, ''),
+            displayName,
+            avatarUrl: clerkUser.imageUrl,
+            isEmailVerified: true, // Clerk handles verification
+          });
+          console.log(`[Auth] Successfully created local DB user! ID: ${user._id}`);
+        }
       } catch (syncErr) {
-        console.error('Clerk User Sync Error:', syncErr);
+        console.error('[Auth] Clerk User Sync Error:', syncErr);
         res.status(500).json({ error: 'Failed to synchronize user account' });
         return;
       }
