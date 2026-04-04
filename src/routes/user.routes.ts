@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as users from '../controllers/user.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, optionalAuthenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -13,6 +13,6 @@ router.post('/:userId/follow', authenticate, users.followUser);
 router.delete('/:userId/follow', authenticate, users.unfollowUser);
 router.get('/:userId/followers', users.getFollowers);
 router.get('/:userId/following', users.getFollowing);
-router.get('/:userId/manga', users.getUserManga);
+router.get('/:userId/manga', optionalAuthenticate, users.getUserManga);
 
 export default router;

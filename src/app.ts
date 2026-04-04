@@ -22,8 +22,12 @@ const server = http.createServer(app);
 
 // Security middleware
 app.use(helmet());
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  origin: (origin, callback) => {
+    // During development, allow all origins (even if missing)
+    callback(null, true);
+  },
   credentials: true,
 }));
 
@@ -45,8 +49,8 @@ const authLimiter = rateLimit({
 });
 
 // Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Root endpoint
 app.get('/', (_req, res) => {
@@ -82,9 +86,17 @@ const PORT = process.env.PORT || 3000;
 
 connectDB().then(() => {
   initSocket(server);
+  
   server.listen(PORT, () => {
     console.log(`🚀 Seisaku API running on port ${PORT}`);
   });
+  
+  // High-performance upload timeouts (for slow mobile networks)
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
 });
+
+
+
 
 export default app;

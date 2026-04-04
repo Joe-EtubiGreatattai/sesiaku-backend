@@ -43,11 +43,13 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
   const OPENING_COUNT = 2;
   const RECENT_COUNT  = 5;
 
-  const textPanels = allChapterPanels.filter(p => p.panelType !== 'image' && p.content.text);
+  const textPanels = allChapterPanels.filter(p =>
+    p.panelType !== 'image' && p.panelType !== 'image-placeholder' && p.content.text
+  );
   console.log('[Copilot] Text panels for context:', textPanels.length);
 
   const toContextPanel = (p: typeof textPanels[0]): ContextPanel => ({
-    type: p.panelType as 'dialog' | 'narration',
+    type: p.panelType as ContextPanel['type'],
     text: p.content.text as string,
     character: p.content.characterName,
   });
@@ -66,24 +68,48 @@ export async function copilot(req: AuthRequest, res: Response): Promise<void> {
 
   console.log('[Copilot] Known characters:', knownCharacters.length ? knownCharacters.join(', ') : 'none');
   console.log('[Copilot] Opening panels:', openingPanels.length, '| Recent panels:', recentPanels.length);
-  console.log('[Copilot] Sending to Gemini...');
+  console.log('[Copilot] Sending to AI...');
 
-  const { panels, tokensUsed, aiModel } = await generateMangaScript(direction, {
-    seriesTitle:       manga.title,
-    seriesDescription: manga.description,
-    genre:             manga.genre,
-    tags:              manga.tags,
-    ageRating:         manga.ageRating,
-    chapterTitle:      chapter.title,
-    chapterNumber:     chapter.chapterNumber,
-    chapterNotes:      chapter.notes,
-    openingPanels:     openingPanels.length  ? openingPanels  : undefined,
-    recentPanels:      recentPanels.length   ? recentPanels   : undefined,
-    knownCharacters:   knownCharacters.length ? knownCharacters : undefined,
-    ...context,
-  });
+  let panels: Awaited<ReturnType<typeof generateMangaScript>>['panels'];
+  let tokensUsed: number;
+  let aiModel: string;
 
-  console.log('[Copilot] Gemini returned', panels.length, 'panels | Tokens used:', tokensUsed);
+  try {
+    ({ panels, tokensUsed, aiModel } = await generateMangaScript(direction, {
+      seriesTitle:       manga.title,
+      seriesDescription: manga.description,
+      genre:             manga.genre,
+      tags:              manga.tags,
+      ageRating:         manga.ageRating,
+      chapterTitle:      chapter.title,
+      chapterNumber:     chapter.chapterNumber,
+      chapterNotes:      chapter.notes,
+      openingPanels:     openingPanels.length  ? openingPanels  : undefined,
+      recentPanels:      recentPanels.length   ? recentPanels   : undefined,
+      knownCharacters:   knownCharacters.length ? knownCharacters : undefined,
+      ...context,
+    }));
+  } catch (err: any) {
+    const msg = (err as Error).message || '';
+    console.error('[Copilot] Generation failed:', msg);
+
+    if (msg.includes('safety') || msg.includes('blocked') || msg.includes('SAFETY')) {
+      res.status(422).json({ error: 'content_blocked', message: 'The direction was blocked by safety filters. Try rephrasing.' });
+    } else if (msg.includes('rate') || msg.includes('429') || msg.includes('quota')) {
+      res.status(503).json({ error: 'rate_limited', message: 'AI service is busy. Please wait a moment and try again.' });
+    } else {
+      res.status(500).json({ error: 'generation_failed', message: 'Both AI providers failed. Please try again.' });
+    }
+    return;
+  }
+
+  if (!panels.length) {
+    console.warn('[Copilot] Generation returned 0 panels');
+    res.status(422).json({ error: 'no_panels', message: 'AI returned no panels. Try rephrasing your direction.' });
+    return;
+  }
+
+  console.log('[Copilot] AI returned', panels.length, 'panels | Model:', aiModel, '| Tokens used:', tokensUsed);
 
   const log = await CopilotLog.create({
     userId: req.user!._id,

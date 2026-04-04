@@ -5,7 +5,7 @@ export interface IPanel extends Document {
   mangaId: mongoose.Types.ObjectId;
   authorId: mongoose.Types.ObjectId;
   order: number;
-  panelType: 'dialog' | 'narration' | 'image-placeholder' | 'image';
+  panelType: 'dialog' | 'monologue' | 'narration' | 'action' | 'image-placeholder' | 'image';
   content: {
     characterName?: string;
     text?: string;
@@ -23,7 +23,7 @@ const PanelSchema = new Schema<IPanel>(
     mangaId: { type: Schema.Types.ObjectId, ref: 'Manga', required: true },
     authorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order: { type: Number, required: true },
-    panelType: { type: String, enum: ['dialog', 'narration', 'image-placeholder', 'image'], required: true },
+    panelType: { type: String, enum: ['dialog', 'monologue', 'narration', 'action', 'image-placeholder', 'image'], required: true },
     content: {
       characterName: { type: String, maxlength: 60 },
       text: { type: String, maxlength: 500 },

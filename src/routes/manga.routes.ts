@@ -37,8 +37,9 @@ router.post('/:mangaId/chapters/:chapterId/publish', authenticate, manga.publish
 router.post('/:mangaId/chapters/:chapterId/panels', authenticate, manga.panelUpload.single('image'), manga.createPanel);
 router.post('/:mangaId/chapters/:chapterId/panels/batch', authenticate, manga.createPanelsBatch);
 router.post('/:mangaId/chapters/:chapterId/panels/bulk', authenticate, manga.panelUpload.array('files', 50), manga.bulkUploadPanels);
+// reorder must be before /:panelId — otherwise Express matches 'reorder' as a panel ID
+router.patch('/:mangaId/chapters/:chapterId/panels/reorder', authenticate, manga.reorderPanels);
 router.patch('/:mangaId/chapters/:chapterId/panels/:panelId', authenticate, manga.panelUpload.single('image'), manga.updatePanel);
 router.delete('/:mangaId/chapters/:chapterId/panels/:panelId', authenticate, manga.deletePanel);
-router.patch('/:mangaId/chapters/:chapterId/panels/reorder', authenticate, manga.reorderPanels);
 
 export default router;

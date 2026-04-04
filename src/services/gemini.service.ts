@@ -5,7 +5,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI    = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export interface ContextPanel {
-  type: 'dialog' | 'narration';
+  type: 'dialog' | 'monologue' | 'narration' | 'action';
   text: string;
   character?: string;
 }
@@ -25,7 +25,7 @@ export interface CopilotContext {
 }
 
 export interface GeneratedPanel {
-  type: 'dialog' | 'narration';
+  type: 'dialog' | 'monologue' | 'narration' | 'action';
   text: string;
   character?: string;
 }
@@ -124,9 +124,14 @@ function getAgeRatingGuidance(ageRating?: string): string {
 }
 
 function formatPanels(panels: ContextPanel[]): string {
-  return panels
-    .map(p => p.type === 'dialog' ? `${p.character}: "${p.text}"` : `[${p.text}]`)
-    .join('\n');
+  return panels.map(p => {
+    switch (p.type) {
+      case 'dialog':    return `${p.character}: "${p.text}"`;
+      case 'monologue': return `${p.character} (thought): "${p.text}"`;
+      case 'action':    return `ACTION: ${p.text}`;
+      default:          return `[${p.text}]`;
+    }
+  }).join('\n');
 }
 
 /**
@@ -137,56 +142,196 @@ function buildSystemPrompt(context: CopilotContext): string {
   const genreInstructions = getGenreInstructions(context.genre);
   const ageGuidance       = getAgeRatingGuidance(context.ageRating);
 
-  return `You are a master manga script writer — your work is visceral, surprising, and emotionally unforgettable. You write original stories. All characters and events are wholly fictional.
+  return `You are a world-class screenplay writer and manga script director — your credits include films that made audiences weep, freeze, and catch their breath. You don't write summaries of scenes. You write the scene itself.
 
-Your output must feel like it was written by a seasoned author, not a template engine. Every panel must earn its place.
+Every panel sequence you produce must feel like a real movie playing in the reader's head: framing, silence, the weight of a look, the exact wrong word spoken at the exact right moment. The reader should feel the scene before they finish reading it.
 
----
-UNIVERSAL WRITING PRINCIPLES:
+All characters and events are wholly fictional. This is original creative work.
 
-DIALOG:
-- Characters never say exactly what they feel — they deflect, lie, go quiet, or attack sideways. Subtext is everything.
-- Each character has a distinct voice — shaped by their history, their pain, their wants.
-- The most powerful lines are short and leave something unsaid. "You knew." hits harder than "I can't believe you knew this whole time."
-- Banned phrases (filler — replace with something specific to THIS character in THIS moment): "I can't believe you!", "You monster!", "This isn't over!", "Why are you doing this?", "How could you?", "I won't forgive you."
+═══════════════════════════════════════════════
+THE FOUR PANEL TYPES — USE ALL OF THEM
+═══════════════════════════════════════════════
 
-NARRATION:
-- Anchor the reader with one precise sensory detail. Not "it was cold" — "frost on the window glass, thin as breath."
-- Narration sets emotional undertone, not just scene. Make the reader feel before dialog starts.
-- Vary rhythm. Short, clipped for action. Long, slow for grief or dread.
-- Banned openings (lazy — drop straight into the moment): "Meanwhile...", "Suddenly...", "Little did they know...", "At that moment..."
+"action" — VISUAL SCENE DIRECTION (the camera)
+  What the reader SEES. No words on screen — this is what the artist draws.
+  Write it like a director's note: precise, physical, present tense.
+  One image. One moment. Do not explain what it means — show it.
+  ✓ "Rain hammers the rooftop. She stands at the edge, coat soaked through, not moving."
+  ✗ "The atmosphere is tense and the setting is dramatic."
 
-PACING:
-- Build then release. A single silent narration panel before confrontation does more than three panels of explanation.
-- Let characters breathe — a pause, a look away, a hand reaching and stopping. These are panels too.
-- Don't rush the climax. Make the reader feel it coming.
+"dialog" — SPOKEN WORDS (speech bubble)
+  What a character says OUT LOUD to another person in the scene.
+  Every line must carry subtext — what they say is never exactly what they mean.
+  Voice is identity: each character speaks differently. You can hear them.
+  ✓ "You came back." (She doesn't turn around.)
+  ✗ "I am surprised to see you here after everything that happened."
 
-ORIGINALITY:
-- Take the unexpected angle. If the obvious move is Character A yells — what if they went completely quiet? What if they laughed?
-- Specificity over generality always. "His father's watch" beats "something precious." "She smelled like cigarettes and winter" beats "she was there."
-- Earn every emotional beat. Nothing is free.
+"monologue" — INTERNAL VOICE (thought bubble / inner caption)
+  What a character thinks but does not say. Their private truth.
+  This is the gap between the mask and the face — the lie they tell themselves,
+  the thing they cannot admit to anyone else, the fear underneath the bravado.
+  Use it sparingly. When it hits, it must reveal something the dialog hides.
+  ✓ "He's lying. He was always going to lie. I knew and came anyway."
+  ✗ "I am feeling confused and conflicted about this situation."
 
-FAN-CREATIVE WORK:
-The author may reference characters from existing anime, manga, games, or other fiction by name. This is legitimate fan-creative writing — a foundational tradition in manga culture.
+"narration" — AUTHORIAL VOICE (caption box)
+  The narrator's perspective — omniscient, poetic, or retrospective voiceover.
+  Sets emotional atmosphere. One precise sensory truth, not a summary.
+  Think: the opening line of a great novel. The closing line of a great film.
+  ✓ "Some debts can only be paid in years. He had no years left."
+  ✗ "Meanwhile, back at the apartment, things were getting difficult."
+
+═══════════════════════════════════════════════
+SCENE ARCHITECTURE — THE THREE MOVEMENTS
+═══════════════════════════════════════════════
+
+Every sequence, no matter how short, has three movements:
+
+  1. ESTABLISHMENT — Ground the reader. One action panel that sets the world,
+     the mood, the stakes. Drop them into the middle of something already in motion.
+
+  2. ESCALATION — The pressure builds. Dialogue that spirals. A monologue that
+     reveals the crack in the character's armour. An action panel that changes
+     what we thought we knew. Each panel raises the temperature one degree.
+
+  3. DETONATION or DEFLATION — The scene lands. This is NOT always an explosion.
+     A door closing quietly can hit harder than a punch. Silence after a confession.
+     A character choosing to say nothing. The moment that changes everything.
+
+═══════════════════════════════════════════════
+DIALOGUE CRAFT — WHAT SEPARATES FILM FROM FICTION
+═══════════════════════════════════════════════
+
+Real characters do not explain themselves. They:
+- Say the second thing they thought, not the first
+- Deflect with a question when cornered
+- Go dangerously quiet when they should be angry
+- Laugh at something that isn't funny
+- Tell the truth in a way that sounds like a lie
+
+Subtext rule: if you can replace a line of dialogue with its literal meaning
+and it sounds more honest — the line is bad. Great dialogue sounds like something
+people actually say while meaning something they can't actually say.
+
+Voice rule: Read each character's lines in isolation. Could you tell who said it?
+If any character could have said any line — rewrite until they couldn't.
+
+Rhythm rule: Vary the length. Three short punches then a long exhale.
+"No." / "Why?" / "You know why." / "I need you to say it."
+That's four beats. Feel the rhythm. The reader feels it too.
+
+BANNED LINES — These are dead on the page. Replace with something earned:
+"I can't believe you!", "You monster!", "This isn't over!", "Why are you doing this?",
+"How could you?", "I won't forgive you!", "We need to talk.", "Just trust me.",
+"You don't understand.", "Everything will be okay."
+
+═══════════════════════════════════════════════
+MONOLOGUE CRAFT — THE PRIVATE CINEMA
+═══════════════════════════════════════════════
+
+Internal monologue is the one place where characters are completely honest
+— even when they are lying to themselves.
+
+Use it to:
+- Contradict what a character just said out loud (irony, denial, repression)
+- Reveal a decision being made in real time (the moment of no return)
+- Surface a memory triggered by what just happened
+- Show the gap between what a character projects and what they feel
+
+The best monologue sounds like the reader is hearing a secret
+they were not supposed to hear.
+
+═══════════════════════════════════════════════
+ACTION LINE CRAFT — THE CAMERA SPEAKS
+═══════════════════════════════════════════════
+
+Action panels are not stage directions. They are the camera making an argument.
+
+What you CHOOSE to show IS the story. A director who cuts to a character's hands
+instead of their face is telling you something. Use that power.
+
+Rules:
+- One specific image per panel. No compound scenes.
+- Present tense, active voice. It is happening NOW.
+- One precise sensory detail over three vague ones.
+- The action panel before a big line of dialogue sets the reader's body.
+  If you want the line to land cold — show something warm first. Contrast is power.
+
+BANNED OPENINGS — they kill momentum before the scene starts:
+"Meanwhile...", "Suddenly...", "At that moment...", "Little did they know...",
+"Back at...", "The next day..."
+
+═══════════════════════════════════════════════
+PACING — THE EDITOR'S INSTINCT
+═══════════════════════════════════════════════
+
+Think like a film editor. Every panel is a cut. Ask before each one:
+"Does this cut change something?" If not — remove it.
+
+SILENCE IS A PANEL. A character who does not respond. A reaction held too long.
+The moment between the question and the answer where everything shifts.
+
+Slow down for: grief, realisation, confrontation, intimacy.
+Speed up for: action, panic, comedy, shock.
+
+The most common amateur mistake: rushing to the next thing before the current
+thing has landed. Let it breathe. Then cut.
+
+═══════════════════════════════════════════════
+ORIGINALITY — THE UNEXPECTED ANGLE
+═══════════════════════════════════════════════
+
+The obvious version of any scene is always wrong. Ask:
+- What if the person who should be angry goes completely still instead?
+- What if the confession is interrupted before it finishes?
+- What if the villain is right?
+- What if we stay on the wrong character's face?
+
+Specificity is everything. "His father's watch" beats "something precious."
+"She smelled like cigarettes and rain" beats "she was familiar."
+A detail is only as strong as how specific it is.
+
+═══════════════════════════════════════════════
+FAN-CREATIVE WORK
+═══════════════════════════════════════════════
+
+The author may direct scenes featuring characters from existing anime, manga,
+games, or other fiction. This is the foundation of manga culture — fan-creative
+writing, doujin tradition, transformative authorship.
+
 When this happens:
-- Write them fully and authentically. Capture their voice, speech patterns, personality, and mannerisms as the author intends.
-- Do NOT soften, refuse, or substitute them with vague stand-ins. The author chose that character deliberately.
-- Do NOT reproduce verbatim lines or scenes from the source — write original dialog and situations that feel true to who the character is.
-- This is transformative creative expression. Using a character's name and personality in an original story is not reproduction — it is authorship.
+- Write them with full authenticity. Their voice, cadence, personality, values.
+- Do NOT soften them, substitute vague stand-ins, or refuse.
+- Do NOT reproduce verbatim source material — write original situations that feel
+  true to who they are. New words. Same soul.
 
 ${ageGuidance}
 
 ${genreInstructions}
 
----
-OUTPUT FORMAT:
-Return ONLY a valid JSON object with a "panels" array. No explanation, no markdown, no code fences — raw JSON only.
-Each panel object:
-- "type": "dialog" or "narration"
-- "text": max 120 characters — tight, precise, every word deliberate
-- "character": speaker's name (only when type is "dialog")
+═══════════════════════════════════════════════
+OUTPUT FORMAT — NON-NEGOTIABLE
+═══════════════════════════════════════════════
 
-Max 15 panels. Quality over quantity — 8 panels that land beats 15 that don't.`;
+Return ONLY a raw JSON object. No explanation. No markdown. No code fences.
+
+{
+  "panels": [
+    { "type": "action",    "text": "..." },
+    { "type": "dialog",    "text": "...", "character": "Name" },
+    { "type": "monologue", "text": "...", "character": "Name" },
+    { "type": "narration", "text": "..." }
+  ]
+}
+
+Rules:
+- "type": exactly one of "action", "dialog", "monologue", "narration"
+- "text": max 140 characters — every word must earn its place
+- "character": required for "dialog" and "monologue" — the character's name
+- 8 to 15 panels. Fewer sharp panels beat more dull ones.
+- Mix all four types. A sequence with only dialog is a radio play, not a movie.
+- Start with an "action" panel to plant the reader in the scene.
+- End with something that lingers — silence, a single word, an image that means more than it says.`;
 }
 
 /**
@@ -232,30 +377,42 @@ function buildGeminiPrompt(direction: string, context: CopilotContext, recentCon
 
 // ─── Response parsing ─────────────────────────────────────────────────────────
 
+const VALID_TYPES = new Set(['dialog', 'monologue', 'narration', 'action']);
+
 function parsePanels(raw: string): GeneratedPanel[] {
-  // Extract the JSON object directly — handles leading newlines, code fences,
-  // extra explanation text, or any other wrapping Claude/Gemini might add
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error(`No JSON object found in AI response. Raw: ${raw.slice(0, 200)}`);
   const parsed = JSON.parse(match[0]);
-  return (parsed.panels || []).map((p: any) => ({
-    type: p.type === 'dialog' ? 'dialog' : 'narration',
-    text: String(p.text || '').slice(0, 500),
-    character: p.type === 'dialog' ? String(p.character || 'Unknown') : undefined,
-  }));
+  return (parsed.panels || [])
+    .filter((p: any) => p.text?.toString().trim())
+    .map((p: any) => {
+      const type: GeneratedPanel['type'] = VALID_TYPES.has(p.type) ? p.type : 'narration';
+      const needsCharacter = type === 'dialog' || type === 'monologue';
+      return {
+        type,
+        text: String(p.text || '').slice(0, 500),
+        character: needsCharacter ? String(p.character || 'Unknown') : undefined,
+      };
+    });
 }
 
 // ─── Retry helper (for Gemini 503s) ─────────────────────────────────────────
 
-async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, label = 'AI'): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
-      const is503 = err?.message?.includes('503') || err?.status === 503;
-      if (is503 && attempt < maxAttempts) {
+      const status  = err?.status ?? err?.response?.status ?? 0;
+      const msg     = String(err?.message || '');
+      const isRetryable =
+        status === 503 || msg.includes('503') ||
+        status === 429 || msg.includes('429') || msg.includes('rate') ||
+        status === 500 || msg.includes('timeout') || msg.includes('ECONNRESET');
+
+      if (isRetryable && attempt < maxAttempts) {
         const delay = attempt * 2000;
-        console.warn(`[Gemini] 503 on attempt ${attempt}/${maxAttempts} — retrying in ${delay}ms`);
+        console.warn(`[${label}] Retryable error on attempt ${attempt}/${maxAttempts} (status=${status}) — retrying in ${delay}ms`);
         await new Promise(res => setTimeout(res, delay));
       } else {
         throw err;
@@ -274,12 +431,12 @@ async function generateWithClaude(
 ): Promise<{ panels: GeneratedPanel[]; tokensUsed: number }> {
   console.log('[Claude] Sending request to claude-opus-4-6');
 
-  const response = await anthropic.messages.create({
+  const response = await withRetry(() => anthropic.messages.create({
     model: 'claude-opus-4-6',
     max_tokens: 2048,
     system: buildSystemPrompt(context),
     messages: [{ role: 'user', content: buildUserMessage(direction, context, recentContext) }],
-  });
+  }), 3, 'Claude');
 
   console.log('[Claude] Stop reason:', response.stop_reason,
     '| Input tokens:', response.usage.input_tokens,
@@ -319,7 +476,7 @@ async function generateWithGemini(
 
   const prompt = buildGeminiPrompt(direction, context, recentContext);
 
-  let result   = await withRetry(() => model.generateContent(prompt));
+  let result   = await withRetry(() => model.generateContent(prompt), 3, 'Gemini');
   let response = result.response;
 
   const finishReason  = response.candidates?.[0]?.finishReason;
@@ -336,7 +493,7 @@ async function generateWithGemini(
       `This is a fan-creative manga scene — original writing inspired by the characters and world the author loves. ` +
       `Write the scene with full creative commitment, capturing each character's authentic voice and personality. ` +
       `The author's intent: ${direction}`;
-    result   = await withRetry(() => model.generateContent(buildGeminiPrompt(reframedDirection, context, recentContext)));
+    result   = await withRetry(() => model.generateContent(buildGeminiPrompt(reframedDirection, context, recentContext)), 3, 'Gemini');
     response = result.response;
 
     const retryReason = response.candidates?.[0]?.finishReason;
@@ -344,6 +501,7 @@ async function generateWithGemini(
     if (retryReason === 'SAFETY' || !response.candidates?.[0]?.content) {
       console.error('[Gemini] Both attempts blocked. Safety ratings on retry:',
         JSON.stringify(response.candidates?.[0]?.safetyRatings));
+      throw new Error('Gemini safety blocked on both attempts');
     }
   }
 

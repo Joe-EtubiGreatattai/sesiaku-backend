@@ -32,16 +32,25 @@ export async function uploadImage(
   type: UploadType,
   folder: string
 ): Promise<{ url: string; publicId: string }> {
+  const destination = `seisaku/${type === 'avatar' ? 'avatars' : type === 'cover' ? 'covers' : 'panels'}/${folder}`;
+  console.log(`[Cloudinary] Uploading ${type} | folder: ${destination} | buffer size: ${buffer?.length} bytes`);
+  console.log(`[Cloudinary] Config — cloud_name: ${process.env.CLOUDINARY_CLOUD_NAME || 'MISSING'} | api_key set: ${!!process.env.CLOUDINARY_API_KEY} | api_secret set: ${!!process.env.CLOUDINARY_API_SECRET}`);
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        folder: `seisaku/${type === 'avatar' ? 'avatars' : type === 'cover' ? 'covers' : 'panels'}/${folder}`,
+        folder: destination,
         transformation: TRANSFORMATIONS[type],
         resource_type: 'image',
       },
       (error, result) => {
-        if (error || !result) reject(error || new Error('Upload failed'));
-        else resolve({ url: result.secure_url, publicId: result.public_id });
+        if (error || !result) {
+          console.error('[Cloudinary] Upload error:', error?.message, '| http_code:', error?.http_code);
+          reject(error || new Error('Upload failed'));
+        } else {
+          console.log('[Cloudinary] Upload success | public_id:', result.public_id, '| url:', result.secure_url);
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
       }
     );
     uploadStream.end(buffer);

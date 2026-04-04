@@ -130,10 +130,21 @@ export async function getFollowing(req: AuthRequest, res: Response): Promise<voi
 export async function getUserManga(req: AuthRequest, res: Response): Promise<void> {
   const page = Number(req.query.page) || 1;
   const limit = 20;
-  const manga = await Manga.find({ authorId: req.params.userId, publishStatus: 'published' })
-    .sort({ publishedAt: -1 })
+  const { userId } = req.params;
+
+  // If the requester is the owner, they can see drafts. Others only see published manga.
+  const isOwner = req.user && String(req.user._id) === String(userId);
+  const query: any = { authorId: userId };
+  
+  if (!isOwner) {
+    query.publishStatus = 'published';
+  }
+
+  const manga = await Manga.find(query)
+    .sort({ publishedAt: -1, createdAt: -1 }) // Sort by newest published, then newest created
     .skip((page - 1) * limit)
     .limit(limit);
+
   res.json({ manga, page });
 }
 
